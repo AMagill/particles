@@ -10,6 +10,15 @@
     <table><tr><td width="512">
       <canvas id="glCanvas" width="512" height="512"></canvas>
       <p>
+        <select id="viewMode">
+          <option value="particles">Show particles</option>
+          <option value="posMap">Show position map</option>
+          <option value="velMap">Show velocity map</option>
+          <option value="noiseMap">Show noise map</option>
+        </select>
+        <input type="checkbox" id="pause">Pause
+      </p>
+      <p>
         Programmed in <a href="http://dartlang.org"> Dart</a>.
         Source code available at <a href="https://github.com/AMagill/particles">GitHub</a>.
       </p>
