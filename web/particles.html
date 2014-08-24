@@ -10,6 +10,13 @@
     <table><tr><td width="512">
       <canvas id="glCanvas" width="512" height="512"></canvas>
       <p>
+        <select id="nParticles">
+          <option value="256">64K particles</option>
+          <option value="512" selected="true">250K particles</option>
+          <option value="1024">1M particles</option>
+          <option value="2048">4M particles</option>
+          <option value="4096">16M particles!</option>
+        </select>
         <select id="viewMode">
           <option value="particles">Show particles</option>
           <option value="posMap">Show position map</option>
