@@ -1,7 +1,6 @@
 import 'dart:html';
 import 'dart:web_gl' as webgl;
 import 'package:vector_math/vector_math.dart';
-import 'package:vector_math/vector_math_lists.dart';
 import 'dart:typed_data';
 import 'shader.dart';
 import 'frame_buffer.dart';
@@ -15,18 +14,15 @@ class ParticleScene {
 
   int _width, _height;
   webgl.RenderingContext _gl;
-  Shader _posShader, _screenShader, _textureShader, _noiseShader;
+  Shader _screenShader, _textureShader, _noiseShader;
   webgl.Buffer _vboParticles, _vboQuad;
-  List<FrameBuffer> _fboPos;
   FrameBuffer _fboNoise;
-  bool oddFrame = false;
   String _viewMode = "particles";
   
   
   String get viewMode => _viewMode;
   void   set viewMode(String mode) {
     _viewMode = mode;
-    //render();
   }
   
   int  get mapDims => _dims;
@@ -35,10 +31,10 @@ class ParticleScene {
     _nParticles = dims * dims;
     
     if (dims <= 256) {
-      _particleBrightness = 0.5;
+      _particleBrightness = 0.05;
       _particleSize = 5.0;
     } else if (dims <= 512) {
-      _particleBrightness = 0.03;
+      _particleBrightness = 0.02;
       _particleSize = 4.0;      
     } else if (dims <= 1024) {
       _particleBrightness = 0.005;
@@ -52,13 +48,24 @@ class ParticleScene {
     }
     
     _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboParticles);
-    var partPos = new Vector2List(_nParticles);
-    for (var i = 0; i < partPos.length; i++) {
+    var partPos = new Float32List(_nParticles * 5);
+    for (var i = 0; i < _nParticles; i++) {
       var x = i % _dims;
       var y = (i-x)/_dims;
-      partPos[i] = new Vector2(x + 0.5, y + 0.5) / _dims.toDouble();
+      partPos[i*5+0] = (x + 0.5) / _dims.toDouble();
+      partPos[i*5+1] = (y + 0.5) / _dims.toDouble();
+      
+      Vector4 color = new Vector4.zero();
+      Colors.hsvToRgb(new Vector4(x / _dims.toDouble(), y / _dims.toDouble(), 0.5, 1.0), color);      
+      partPos[i*5+2] = color.r;
+      partPos[i*5+3] = color.g;
+      partPos[i*5+4] = color.b;
     }
-    _gl.bufferDataTyped(webgl.ARRAY_BUFFER, partPos.buffer, webgl.STATIC_DRAW);
+    _gl.bufferDataTyped(webgl.ARRAY_BUFFER, partPos, webgl.STATIC_DRAW);
+    
+    _screenShader.use();
+    _gl.uniform1f(_screenShader["uBrightness"], _particleBrightness);
+    _gl.uniform1f(_screenShader["uSize"], _particleSize);
   }
   
   ParticleScene(CanvasElement canvas) {
@@ -70,9 +77,13 @@ class ParticleScene {
     _gl.getExtension('OES_texture_float_linear');
     
     _gl.enable(webgl.BLEND);
-        
+    _gl.enableVertexAttribArray(0);
+    _gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    
+    _initShaders();
+
     _vboParticles = _gl.createBuffer();
-    mapDims = 512;
+    mapDims = 1024;
     
     _vboQuad = _gl.createBuffer();
     _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
@@ -80,42 +91,16 @@ class ParticleScene {
         new Float32List.fromList([ 0.0, 0.0,  1.0, 0.0,
                                    0.0, 1.0,  1.0, 1.0]), webgl.STATIC_DRAW);
 
-    _fboPos = [new FrameBuffer(_gl, _dims, _dims, type: webgl.FLOAT),
-               new FrameBuffer(_gl, _dims, _dims, type: webgl.FLOAT)];
-
-    _gl.activeTexture(webgl.TEXTURE2);
     _fboNoise = new FrameBuffer(_gl, _noiseDims, _noiseDims, 
         type: webgl.FLOAT, filtering: webgl.LINEAR);
-    
-    _gl.activeTexture(webgl.TEXTURE0);
-    _gl.bindTexture(webgl.TEXTURE_2D, _fboPos[0].imageTex);
-    var initialPos = new Vector3List(_nParticles);
-    for (var i = 0; i < _nParticles; i++) {
-      var x = (  i % _dims       + 0.5) / _dims;
-      var y = (((i / _dims) - x) + 0.5) / _dims;
-      initialPos[i] = new Vector3(x*2-1, y*2-1, 0.0);
-    }
-    _gl.texImage2DTyped(webgl.TEXTURE_2D, 0, webgl.RGB, _dims, _dims, 0,
-        webgl.RGB, webgl.FLOAT, initialPos.buffer);
-    
-    
-/*    _gl.activeTexture(webgl.TEXTURE1);
-    _gl.texParameteri(webgl.TEXTURE_2D, webgl.TEXTURE_MIN_FILTER, webgl.NEAREST);
-    _gl.texParameteri(webgl.TEXTURE_2D, webgl.TEXTURE_MAG_FILTER, webgl.NEAREST);
-*/
-    
-    _initShaders();
-    
-    var mProjection = makeOrthographicMatrix(-1, 1, -1, 1, -1, 1);
-
-    
-    _posShader.use();
-    _gl.uniform1i(_posShader['uPosTex'],   0);
-    _gl.uniform1i(_posShader['uNoiseTex'], 2);
-
+    _gl.bindTexture(webgl.TEXTURE_2D, _fboNoise.imageTex);
+        
     _screenShader.use();
     _gl.uniform1i(_screenShader['uPosTex'], 0);
-    _gl.uniformMatrix4fv(_screenShader['uProjection'], false, mProjection.storage);
+    
+    _noiseShader.use();
+    _gl.uniform1f(_noiseShader["uScale"], 10.0);
+
   }
   
   void _initShaders() {
@@ -214,64 +199,25 @@ float cnoise(vec3 P)
 }
 """;
     
-    String vsPos = """
-precision mediump int;
-precision mediump float;
-
-attribute vec2  aPosition;
-
-varying vec2 vUV;
-
-void main() {
-  gl_Position = vec4(aPosition*2.0-vec2(1.0), 0.0, 1.0);
-  vUV = aPosition;
-}
-    """;
-    
-    String fsPos = """
-precision mediump int;
-precision mediump float;
-
-varying vec2 vUV;
-
-uniform sampler2D uPosTex;
-uniform sampler2D uNoiseTex;
-uniform float uTime, uNoiseScale;
-
-void main() {
-  vec3 noise = vec3(texture2D(uNoiseTex, vUV).rgb);
-  vec3 pos = texture2D(uPosTex, vUV).rgb;
-
-  //pos += noise;
-  pos = noise;
-
-  gl_FragColor = vec4(pos, 1.0);
-}
-    """;
-    
-    _posShader = new Shader(_gl, vsPos, fsPos, {'aPosition': 0});
-
-    
     String vsScreen = """
 precision mediump int;
 precision mediump float;
 
 attribute vec2  aPosition;
+attribute vec3  aColor;
 
 varying vec2  vPosition;
+varying vec3  vColor;
 
-uniform mat4      uProjection;
 uniform sampler2D uPosTex;
 uniform float     uSize;
+uniform float     uBrightness;
 
 void main() {
-  vec3 pos = texture2D(uPosTex, aPosition).rgb;
-
-  //vec3 pos = vec3(aPosition, 0.0) * 2.0 - 1.0;
-
-  gl_Position = uProjection * vec4(pos, 1.0);
-  vPosition = aPosition;
+  gl_Position  = vec4(texture2D(uPosTex, aPosition).rgb, 1.0);
   gl_PointSize = uSize;
+  vPosition    = aPosition;
+  vColor       = aColor * uBrightness;
 }
     """;
     
@@ -280,28 +226,16 @@ precision mediump int;
 precision mediump float;
 
 varying vec2  vPosition;
+varying vec3  vColor;
 
 uniform sampler2D uPosTex;
-uniform float     uBrightness;
-
-vec3 hsv2rgb(vec3 c)
-{
-    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-}
 
 void main() {
-  vec3 color = vec3(0.005);
-  color = hsv2rgb(vec3(vPosition.rg, 0.5));
-  //color = texture2D(uPosTex, vPosition).rgb * 0.5 + vec3(0.5);
-  //color = vBlarg * 0.5 + 0.5;
-  //color = texture2D(uPosTex, vPosition).rgb * 0.5 + 0.5;
-  gl_FragColor = vec4(color * uBrightness, 1.0);
+  gl_FragColor = vec4(vColor, 1.0);
 }
     """;
     
-    _screenShader = new Shader(_gl, vsScreen, fsScreen, {'aPosition': 0});
+    _screenShader = new Shader(_gl, vsScreen, fsScreen, {'aPosition': 0, 'aColor': 1});
 
     String vsTexture = """
 precision mediump int;
@@ -356,77 +290,40 @@ void main() {
   }
   
   void render([double time = 0.0]) {
-    oddFrame = !oddFrame;
-    
     // Generate noise
     _gl.bindFramebuffer(webgl.FRAMEBUFFER, _fboNoise.fbo);
     _gl.viewport(0, 0, _noiseDims, _noiseDims);
     _noiseShader.use();
     _gl.uniform1f(_noiseShader["uTime"], time / 50000.0);
-    _gl.uniform1f(_noiseShader["uScale"], 10.0);
     _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
     _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
-    _gl.enableVertexAttribArray(0);
     _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);
-/*
-    // Set up for sims
-    _gl.viewport(0, 0, _dims, _dims);
-    _gl.activeTexture(webgl.TEXTURE0);
-    _gl.bindTexture(webgl.TEXTURE_2D, _fboPos[oddFrame?0:1].imageTex);
-    _gl.activeTexture(webgl.TEXTURE2);
-    _gl.bindTexture(webgl.TEXTURE_2D, _fboNoise.imageTex);
-    _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
-    _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
-    _gl.enableVertexAttribArray(0);
-    
-    // Do velocity sim
-    
-    // Do position sim
-    _gl.bindFramebuffer(webgl.FRAMEBUFFER, _fboPos[oddFrame?1:0].fbo);
-    _posShader.use();
-    _gl.uniform1f(_posShader["uTime"], time / 50000.0);
-    _gl.uniform1f(_posShader["uNoiseScale"], 10.0);
-    _gl.clear(webgl.COLOR_BUFFER_BIT);
-    _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);
-*/
+
     // Back to normal
     _gl.bindFramebuffer(webgl.FRAMEBUFFER, null);
     _gl.viewport(0, 0, _width, _height);
  
     if (_viewMode == "particles") {
       _gl.blendFunc(webgl.ONE, webgl.ONE);
-      _gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      _gl.activeTexture(webgl.TEXTURE0);
-      //_gl.bindTexture(webgl.TEXTURE_2D, _fboPos[oddFrame?1:0].imageTex);
-      _gl.bindTexture(webgl.TEXTURE_2D, _fboNoise.imageTex);
       _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboParticles);
-      _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
-      _gl.enableVertexAttribArray(0);
+      _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 5*4, 0*4);
+      _gl.vertexAttribPointer(1, 3, webgl.FLOAT, false, 5*4, 2*4);
+      _gl.enableVertexAttribArray(1);
       _screenShader.use();
-      _gl.uniform1f(_screenShader["uBrightness"], _particleBrightness);
-      _gl.uniform1f(_screenShader["uSize"], _particleSize);
+      //_gl.uniform1f(_screenShader["uBrightness"], _particleBrightness);
+      //_gl.uniform1f(_screenShader["uSize"], _particleSize);
       _gl.clear(webgl.COLOR_BUFFER_BIT);
       _gl.drawArrays(webgl.POINTS, 0, _nParticles);
       _gl.blendFunc(webgl.ONE, webgl.ZERO);
-    }
-    
-    void setupTexShader(var texture) {
-      _gl.activeTexture(webgl.TEXTURE0);
-      _gl.bindTexture(webgl.TEXTURE_2D, texture);
-      _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
-      _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
-      _gl.enableVertexAttribArray(0);
-      _textureShader.use();
-      _gl.clear(webgl.COLOR_BUFFER_BIT);
-      _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);      
-    }
-    
-    if (_viewMode == "posMap") {
-      setupTexShader(_fboPos[oddFrame?1:0].imageTex);
+      _gl.disableVertexAttribArray(1);
     }
     
     if (_viewMode == "noiseMap") {
-      setupTexShader(_fboNoise.imageTex);
+      //_gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
+      //_gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
+      _textureShader.use();
+      //_gl.clear(webgl.COLOR_BUFFER_BIT);
+      _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);      
     }
     
   }
