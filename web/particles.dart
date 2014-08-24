@@ -18,13 +18,27 @@ class ParticleScene {
   webgl.Buffer _vboParticles, _vboQuad;
   FrameBuffer _fboNoise;
   String _viewMode = "particles";
+  bool _paused = false;  
+  double _noiseFrequency = 4.0;
   
+  bool get paused => _paused;
+  void   set paused(bool paused) {
+    _paused = paused;
+  }
   
   String get viewMode => _viewMode;
   void   set viewMode(String mode) {
     _viewMode = mode;
+    if (_paused) render();
   }
   
+  double get noiseFrequency => _noiseFrequency;
+  void   set noiseFrequency(double freq) {
+    _noiseFrequency = freq;
+    _noiseShader.use();
+    _gl.uniform1f(_noiseShader["uScale"], freq);
+  }
+
   int  get mapDims => _dims;
   void set mapDims(int dims) {
     _dims = dims;
@@ -66,6 +80,8 @@ class ParticleScene {
     _screenShader.use();
     _gl.uniform1f(_screenShader["uBrightness"], _particleBrightness);
     _gl.uniform1f(_screenShader["uSize"], _particleSize);
+    
+    if (_paused) render();
   }
   
   ParticleScene(CanvasElement canvas) {
@@ -82,6 +98,8 @@ class ParticleScene {
     
     _initShaders();
 
+    noiseFrequency = 4.0;
+    
     _vboParticles = _gl.createBuffer();
     mapDims = 1024;
     
@@ -97,10 +115,6 @@ class ParticleScene {
         
     _screenShader.use();
     _gl.uniform1i(_screenShader['uPosTex'], 0);
-    
-    _noiseShader.use();
-    _gl.uniform1f(_noiseShader["uScale"], 10.0);
-
   }
   
   void _initShaders() {
@@ -277,11 +291,22 @@ uniform float uScale;
 
 $simplexGLSL
 
-void main() {
+vec3 colorNoise(vec3 coord) {
+  const vec3 offR = vec3(0.0, 0.0, 123.4);
+  const vec3 offG = vec3(0.0, 0.0, 567.8);
+  const vec3 offB = vec3(0.0, 0.0, 901.2);
+
   vec3 color;   //  Offsets to uZ arbitrarily chosen
-  color.r = cnoise(vec3(vUV, uTime + 123.4) * uScale);
-  color.g = cnoise(vec3(vUV, uTime + 567.8) * uScale);
-  color.b = cnoise(vec3(vUV, uTime + 901.2) * uScale);
+  color.r = cnoise(coord + offR);
+  color.g = cnoise(coord + offG);
+  color.b = cnoise(coord + offB);
+
+  return color;
+}
+
+void main() {
+  vec3 color = colorNoise(vec3(vUV, uTime) * uScale) +
+               colorNoise(vec3(vUV, uTime) * uScale * 2.0) * 0.5;
   gl_FragColor = vec4(color, 1.0);
 }
     """;
@@ -291,18 +316,22 @@ void main() {
   
   void render([double time = 0.0]) {
     // Generate noise
-    _gl.bindFramebuffer(webgl.FRAMEBUFFER, _fboNoise.fbo);
-    _gl.viewport(0, 0, _noiseDims, _noiseDims);
-    _noiseShader.use();
-    _gl.uniform1f(_noiseShader["uTime"], time / 50000.0);
-    _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
-    _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
-    _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);
+    if (!_paused) {
+      _gl.bindFramebuffer(webgl.FRAMEBUFFER, _fboNoise.fbo);
+      _gl.viewport(0, 0, _noiseDims, _noiseDims);
+      _noiseShader.use();
+      _gl.uniform1f(_noiseShader["uTime"], time / 50000.0);
+      _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
+      _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
+      _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);
 
-    // Back to normal
-    _gl.bindFramebuffer(webgl.FRAMEBUFFER, null);
-    _gl.viewport(0, 0, _width, _height);
+      // Back to normal
+      _gl.bindFramebuffer(webgl.FRAMEBUFFER, null);
+      _gl.viewport(0, 0, _width, _height);
+    }
  
+    if (_paused && time != 0.0) return;
+    
     if (_viewMode == "particles") {
       _gl.blendFunc(webgl.ONE, webgl.ONE);
       _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboParticles);
@@ -319,8 +348,8 @@ void main() {
     }
     
     if (_viewMode == "noiseMap") {
-      //_gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
-      //_gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
+      _gl.bindBuffer(webgl.ARRAY_BUFFER, _vboQuad);
+      _gl.vertexAttribPointer(0, 2, webgl.FLOAT, false, 0, 0);
       _textureShader.use();
       //_gl.clear(webgl.COLOR_BUFFER_BIT);
       _gl.drawArrays(webgl.TRIANGLE_STRIP, 0, 4);      
@@ -342,6 +371,11 @@ void main() {
   var nParticlesCombo = document.querySelector("#nParticles") as SelectElement;
   nParticlesCombo.onChange.listen((e) => scene.mapDims = int.parse(nParticlesCombo.value));
 
+  var frequencyCombo = document.querySelector("#frequency") as SelectElement;
+  frequencyCombo.onChange.listen((e) => scene.noiseFrequency = double.parse(frequencyCombo.value));
+
+  var pauseCheckbox = document.querySelector("#pause") as CheckboxInputElement;
+  pauseCheckbox.onChange.listen((e) => scene.paused = (pauseCheckbox.checked));
   
   window.animationFrame
     ..then((time) => animate(time));
