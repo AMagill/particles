@@ -8,9 +8,11 @@
   </head>
   <body>
     <table><tr><td width="512">
-      <canvas id="glCanvas" width="512" height="512"></canvas>
+      <canvas id="glCanvas" width="800" height="800"></canvas>
       <p>
         <select id="nParticles">
+          <option value="64">4K particles</option>
+          <option value="128">16K particles</option>
           <option value="256">64K particles</option>
           <option value="512">250K particles</option>
           <option value="1024" selected="true">1M particles</option>
@@ -26,10 +28,38 @@
           <option value="6">Noise frequency 6</option>
           <option value="7">Noise frequency 7</option>
           <option value="8">Noise frequency 8</option>
+          <option value="9">Noise frequency 9</option>
           <option value="10">Noise frequency 10</option>
           <option value="20">Noise frequency 20</option>
+          <option value="30">Noise frequency 30</option>
           <option value="40">Noise frequency 40</option>
+          <option value="50">Noise frequency 50</option>
+          <option value="60">Noise frequency 60</option>
+          <option value="70">Noise frequency 70</option>
           <option value="80">Noise frequency 80</option>
+          <option value="90">Noise frequency 90</option>
+          <option value="100">Noise frequency 100</option>
+        </select>
+        <select id="speed">
+          <option value="1">Speed 1</option>
+          <option value="2">Speed 2</option>
+          <option value="3">Speed 3</option>
+          <option value="4" selected="true">Speed 4</option>
+          <option value="5">Speed 5</option>
+          <option value="6">Speed 6</option>
+          <option value="7">Speed 7</option>
+          <option value="8">Speed 8</option>
+          <option value="9">Speed 9</option>
+          <option value="10">Speed 10</option>
+          <option value="20">Speed 20</option>
+          <option value="30">Speed 30</option>
+          <option value="40">Speed 40</option>
+          <option value="50">Speed 50</option>
+          <option value="60">Speed 60</option>
+          <option value="70">Speed 70</option>
+          <option value="80">Speed 80</option>
+          <option value="90">Speed 90</option>
+          <option value="100">Speed 100</option>
         </select>
         <select id="viewMode">
           <option value="particles">Show particles</option>
@@ -39,7 +69,7 @@
       </p>
       <p>
         Programmed in <a href="http://dartlang.org"> Dart</a>.
-        Source code available at <a href="https://github.com/AMagill/particles/tree/Simple-noise">GitHub</a>.
+        Source code available at <a href="https://github.com/AMagill/particles/">GitHub</a>.
       </p>
       <p id="debugp"></p>
     </td></tr></table>
